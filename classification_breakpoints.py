@@ -195,6 +195,7 @@ class _Rooted(_Tree):
         if root_1 not in self.tree or root_2 not in tree_2.tree:  # si le racine d'un des deux sous arbres et une feuille et l'autre non, les arbres ne sont pas isomorphes
             return False
         # comparaison de sous arbres gauches entre eux et des sous arbres droits entre eux \
+        print( self.tree, tree_2.tree)
         return (self.are_isomorphics(tree_2, self.tree[root_1][0], tree_2.tree[root_2][0]) and
                 self.are_isomorphics(tree_2, self.tree[root_1][1], tree_2.tree[root_2][1])) or \
                (self.are_isomorphics(tree_2, self.tree[root_1][0], tree_2.tree[root_2][1]) and
@@ -211,13 +212,13 @@ class _Rooted(_Tree):
         """
         if self.equal(rooted):  # dans le cas ou les deux arbres sont strictement identiques
             return "hidden"
-        if self.are_isomorphics(rooted, self.root,
-                                rooted.root):  # si les deux généalogies sont isomorphes (labels des feuilles + topologie)
+        if self.are_isomorphics_canonical(rooted): # , self.root,
+                                # rooted.root):  # si les deux généalogies sont isomorphes (labels des feuilles + topologie)
             return "silent"
-        unrooted_1, unrooted_2 = self.to_unrooted(), rooted.to_unrooted()  # sinon on s'intéresse à l'isomorphisme des arbres non enracinés
-        if unrooted_1.are_isomorphics(
-                unrooted_2):  # deux généalogies ne sont pas isomorphe et que les arbres non enraciné le sont
-            return "discret"
+        # unrooted_1, unrooted_2 = self.to_unrooted(), rooted.to_unrooted()  # sinon on s'intéresse à l'isomorphisme des arbres non enracinés
+        # if unrooted_1.are_isomorphics(
+        #         unrooted_2):  # deux généalogies ne sont pas isomorphe et que les arbres non enraciné le sont
+        #     return "discret"
         return "incompatible"  # les généalogie ainsi que les arbres non enraciné corepondants ne sont pas isomorphes
 
     def to_unrooted(self):

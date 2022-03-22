@@ -59,5 +59,6 @@ def msprime_simulate_variants(params):
     # Genetic variation of the data with mutation
     ts = ms.sim_mutations(tree_sequence=ts, rate=params['mu'], discrete_genome=False,
     model=mutation_model)
+    #return ts
     return ts.edges(), list(ts.breakpoints()), \
-    [variant for variant in ts.variants() if sum(variant.genotypes) > 1]
+    [variant for variant in ts.variants()]
