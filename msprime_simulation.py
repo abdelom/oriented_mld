@@ -1,4 +1,6 @@
 import msprime as ms
+import tsinfer as tsi
+import tsdate
 
 
 def msprime_simulate_variants(params):
@@ -47,7 +49,7 @@ def msprime_simulate_variants(params):
     demography.add_population(initial_size=params['Ne'], growth_rate=0.)
     # Ancestral population
     demography.add_population_parameters_change(
-        time=params['Tau'], population=0, initial_size=params['Ne']*params['Kappa'],
+        time=params['Tau'], population=0, initial_size=params['Ne'] * params['Kappa'],
         growth_rate=0.)
     ts = ms.sim_ancestry(
         samples=int(params['sample_size'] / 2), demography=demography, ploidy=2,
@@ -58,7 +60,19 @@ def msprime_simulate_variants(params):
     mutation_model = ms.BinaryMutationModel(state_independent=False)
     # Genetic variation of the data with mutation
     ts = ms.sim_mutations(tree_sequence=ts, rate=params['mu'], discrete_genome=False,
-    model=mutation_model)
-    #return ts
-    return ts.edges(), list(ts.breakpoints()), \
-    [variant for variant in ts.variants()]
+                          model=mutation_model)
+    # return ts
+    return ts, ts.edges(), list(ts.breakpoints()), \
+           [variant for variant in ts.variants()]
+
+
+def test_tsinfer(variants, sequence_length, simplify=False):
+    with tsi.SampleData(sequence_length=sequence_length, num_flush_threads=2) as sample_data:
+        for var in variants:
+            sample_data.add_site(var.site.position, var.genotypes, var.alleles)
+    ts = tsi.infer(sample_data)  # .simplify()
+    if simplify:
+        ts = ts.simplify()
+    # ts = tsdate.date(ts, Ne=1, mutation_rate=8e-4)
+    return [ts, ts.edges(), list(ts.breakpoints()), \
+            [variant for variant in ts.variants()]]

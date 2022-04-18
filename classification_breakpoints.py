@@ -202,7 +202,7 @@ class _Rooted(_Tree):
                 self.are_isomorphics(tree_2, self.tree[root_1][1], tree_2.tree[root_2][0]))
         # comparaison des sous arbres droits avec les sous arbres gauches
 
-    def brkpoint_type(self, rooted):
+    def brkpoint_type(self, rooted, topo_unrooted=True):
         """
         entrée:
             rooted: un deuxième arbre enraciné
@@ -215,10 +215,11 @@ class _Rooted(_Tree):
         if self.are_isomorphics_canonical(rooted): # , self.root,
                                 # rooted.root):  # si les deux généalogies sont isomorphes (labels des feuilles + topologie)
             return "silent"
-        # unrooted_1, unrooted_2 = self.to_unrooted(), rooted.to_unrooted()  # sinon on s'intéresse à l'isomorphisme des arbres non enracinés
-        # if unrooted_1.are_isomorphics(
-        #         unrooted_2):  # deux généalogies ne sont pas isomorphe et que les arbres non enraciné le sont
-        #     return "discret"
+        if topo_unrooted:
+            unrooted_1, unrooted_2 = self.to_unrooted(), rooted.to_unrooted()  # sinon on s'intéresse à l'isomorphisme des arbres non enracinés
+            if unrooted_1.are_isomorphics(
+                    unrooted_2):  # deux généalogies ne sont pas isomorphe et que les arbres non enraciné le sont
+                return "discret"
         return "incompatible"  # les généalogie ainsi que les arbres non enraciné corepondants ne sont pas isomorphes
 
     def to_unrooted(self):
@@ -286,7 +287,7 @@ def trees_construction(edges, brkpoints):
     return list_tree
 
 
-def class_brkpoints(edges, events):
+def class_brkpoints(edges, events, unroot=False):
     """
     fonction principale du module
     entrées:
@@ -304,6 +305,6 @@ def class_brkpoints(edges, events):
     for index, rooted_2 in enumerate(list_tree[1:]):
         rooted_2.set_root(max(rooted_2.tree))  # arbre du bloc suivant
         class_bk.append(
-            (events[index + 1], rooted_1.brkpoint_type(rooted_2)))  # asignation du points entre les deux bloques
+            (events[index + 1], rooted_1.brkpoint_type(rooted_2, unroot)))  # asignation du points entre les deux bloques
         rooted_1 = rooted_2.copy()  #
     return class_bk
