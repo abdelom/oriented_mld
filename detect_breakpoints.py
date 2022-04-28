@@ -1,7 +1,13 @@
-import time
 import numpy as np
-import itertools as it
-from msprime_simulation import msprime_simulate_variants
+
+
+"""
+implémentation de deux algorithmes de détection de point de recombinaison dans un alignement de séquences apparentées
+"""
+
+########################################################################################################################
+##########################################algo naif#####################################################################
+########################################################################################################################
 
 def internal_incompatibility(genotype1, genotype2, oriented=True):
     """
@@ -20,9 +26,9 @@ def internal_incompatibility(genotype1, genotype2, oriented=True):
     set_genotype_1 = {i for i in range(len(genotype1)) if genotype1[i]}
     set_genotype_2 = {i for i in range(len(genotype2)) if genotype2[i]}
     return not (
-        not set_genotype_1.intersection(set_genotype_2)
-        or set_genotype_1.union(set_genotype_2) == set_genotype_1
-        or set_genotype_1.union(set_genotype_2) == set_genotype_2
+            not set_genotype_1.intersection(set_genotype_2)
+            or set_genotype_1.union(set_genotype_2) == set_genotype_1
+            or set_genotype_1.union(set_genotype_2) == set_genotype_2
     )
 
 
@@ -81,10 +87,32 @@ def detect_internal_incompatibilities(variants, oriented=True, thresold=20):
         j = i + 1
         while j < i + thresold and j < len(variants):
             if internal_incompatibility(variants[i].genotypes,
-               variants[j].genotypes, oriented):
+                                        variants[j].genotypes, oriented):
                 list_incompatible_sites.append((i, j))
             j += 1
     return shortening(list_incompatible_sites)
+
+
+########################################################################################################################
+##########################################algo underachieve##############################################################
+########################################################################################################################
+def internal_incompatibility_2(set_genotype_1, set_genotype_2):
+    """
+    four gamete test enlarged to discrete recombnation events since genotypes
+    are oriented ( 0 = ancestral state, 1 = derivative state)
+    two genotypes are compatible, there is no breakpoint between them,
+    when they exlude each others or one of them include the other
+    parameters:
+        genotype1, ganotype2, array of int values taken only 0 or 1 as value
+    return:
+        boolean, True if the two sites if there is an incompatible or discrete
+        recombination event between them, then False
+    """
+    return not (
+            not set_genotype_1.intersection(set_genotype_2)
+            or set_genotype_1.union(set_genotype_2) == set_genotype_1
+            or set_genotype_1.union(set_genotype_2) == set_genotype_2
+    )
 
 
 def internal_incompatibility_2(set_genotype_1, set_genotype_2):
@@ -100,21 +128,35 @@ def internal_incompatibility_2(set_genotype_1, set_genotype_2):
         recombination event between them, then False
     """
     return not (
-        not set_genotype_1.intersection(set_genotype_2)
-        or set_genotype_1.union(set_genotype_2) == set_genotype_1
-        or set_genotype_1.union(set_genotype_2) == set_genotype_2
+            not set_genotype_1.intersection(set_genotype_2)
+            or set_genotype_1.union(set_genotype_2) == set_genotype_1
+            or set_genotype_1.union(set_genotype_2) == set_genotype_2
     )
 
 
 def closest_incompatibility(index: object, sub_set: object) -> object:
+    """
+    :param index: dcitionnair, les clé sont les tuples chacun associé à une bipartition corespondant à un site polymorche déjà
+    rencontré, la valeur à la position du derniers snp, générant cette bipartition rencontré
+    :param sub_set: bipartition di site polymorphe courant
+    :return: la position du site polymorphe incompatible le plus proche du site courant, -1 s'il n'y a pas d'incompatibilité
+    """
     position = [-1]
     for sub_set_tmp in index:
         if internal_incompatibility_2(set(sub_set), set(sub_set_tmp)):
             position.append(index[sub_set_tmp])
-    return max(position)
+    return max(position) # si -1 le site n'es pas incompatible
 
 
 def built_index(start, max_start, variants, individuals):
+    """
+
+    :param start:
+    :param max_start:
+    :param variants:
+    :param individuals:
+    :return:
+    """
     block_start, position = start, start
     index = {tuple(individuals[variants[start].genotypes == 1]): start}
     while position < len(variants):
@@ -137,39 +179,17 @@ def built_index(start, max_start, variants, individuals):
 
 
 def detect_events(variants, nb):
+    """
+
+    :param variants: liste d'objet Variants du module msprime
+    :param nb: nombre de séquence dans l'alignement
+    :return: liste de tuples délimitants des bloques de dans l'alignement de séquence sans incompatibilitées
+    ces blocs peuvent être chevauchant
+    """
     individuals = np.array((range(nb)))
     block_start, start, block_end = built_index(0, 0, variants, individuals)
     list_block = [(block_start, block_end)]
     while block_end < len(variants) - 1:
         block_start, start, block_end = built_index(start + 1, block_end, variants, individuals)
         list_block.append((block_start - 1, block_end))
-    return [(list_block[i + 1][0], list_block[i][1]) for i in range(len(list_block) - 1)] #list_block
-
-
-# def detect_events(variants, nb):
-#     index = {}
-#     list_mld = []
-#     individuals = np.array((range(nb)))
-#     for position, variant in enumerate(variants):
-#         sub_set = tuple(individuals[variant.genotypes == 1])
-#         if len(sub_set) != 1:
-#             if sub_set not in index:
-#                 position_2 = closest_incompatibility(index, sub_set)
-#                 if position_2 != -1:
-#                     print(index, len(index))
-#                     index = {sub_set: position}
-#                     list_mld.append((position_2, position))
-#                     continue
-#             index[sub_set] = position
-#     return list_mld
-
-
-def main():
-    params = {"sample_size": 10, "Ne": 1, "ro": 8e-6, "mu": 8e-4, "Tau": 1, "Kappa": 1, "length": int(1e7)}
-    _, _, _, variants = msprime_simulate_variants(params)
-    #print(detect_events(variants, 10))
-    # print(len(detect_events(variants, 10)))
-    # print(len(detect_internal_incompatibilities(variants, oriented=True, thresold=20)))
-    # print(time.time() - start)
-
-main()
+    return [(list_block[i + 1][0], list_block[i][1]) for i in range(len(list_block) - 1)]  # list_block

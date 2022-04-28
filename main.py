@@ -1,9 +1,12 @@
 import pandas as pd
+import numpy as np
 import collections as cl
 import matplotlib.pyplot as plt
 from detect_breakpoints import *
 from msprime_simulation import msprime_simulate_variants, test_tsinfer
 from classification_breakpoints import class_brkpoints
+from tree_depth import *
+from scipy.stats import kde
 
 
 def events_counts(variants, obs_events, th_events):
@@ -55,20 +58,20 @@ def block_length(mld):
     distributions des longueurs de blocs
     """
     mld_length = []
-    for i in range(1, len(mld)):
-        if mld[i] - mld[i - 1] < 0:
-            print(mld[i], mld[i - 1])
-        mld_length.append(mld[i] - mld[i - 1])
+    # for i in range(1, len(mld)):
+    #     if mld[i] - mld[i - 1] < 0:
+    #         print(mld[i], mld[i - 1])
+    #     mld_length.append(mld[i] - mld[i - 1])
     # mld_length = [mld[i] - mld[i - 1] for i in range(1, len(mld))]
     # print(mld[-4:])
-    length_distribution = [0] * 26
-    lc = np.mean(mld_length)
-    nb_blocks = len(mld_length)
+    length_distribution = [0] * 21
+    lc = np.mean(mld)
+    nb_blocks = len(mld)
     i = 0
-    for length in mld_length:
+    for length in mld:
         # print(lc, length, length / lc, (length / lc) // 0.1)
-        index = (length / lc) // 0.2
-        if index < 25:
+        index = (length / lc) // 0.1
+        if index < 20:
             length_distribution[int(index)] += 1
         else:
             length_distribution[-1] += 1
@@ -169,17 +172,17 @@ def method_comparaison(params, nb_repetition):
         list_closest, columns=["jerome", "abdel_guillaume", "elise_50", "elise_100"]).to_csv("closest")
 
 
-def nb_partition(variants, individuals):
-    dict_partitions = {}
-    individuals = np.array(range(individuals))
-    print(list(individuals))
-    for variant in variants:
-        partition = tuple(individuals[variant.genotypes == 1])
-        if partition in dict_partitions:
-            dict_partitions[partition] += 1
-        else:
-            dict_partitions[partition] = 0
-    return dict_partitions
+# def nb_partition(variants, individuals):
+#     dict_partitions = {}
+#     individuals = np.array(range(individuals))
+#     print(list(individuals))
+#     for variant in variants:
+#         partition = tuple(individuals[variant.genotypes == 1])
+#         if partition in dict_partitions:
+#             dict_partitions[partition] += 1
+#         else:
+#             dict_partitions[partition] = 0
+#     return dict_partitions
 
 
 def scatter_plot(data):
@@ -204,40 +207,64 @@ def box_plot_time(data):
     fig.savefig("box.png", dpi=200)
 
 
-def covering(mld_list, length):
-    cover = np.array([0] * length)
-    inf = 0
-    for tmp, sup in mld_list:
-        cover[inf:sup] += 1
-        inf = tmp
-    cover[inf:length] += 1
-    print(len(cover[cover == 3]) / len(cover) )
+def plot_time_density(list_time):
     fig, ax = plt.subplots(figsize=(15, 10))
-    plt.plot(range(length), cover)
-    fig.savefig("ddd.png", dpi=200)
-    return cover
+    for elem in list_time:
+        if list(elem):
+            data = elem / np.mean(elem)
+            density = kde.gaussian_kde(data)
+            x = np.linspace(0,  5, 2000)
+            y = density(x)
+            plt.plot(x, y)
+    fig.savefig("time5.png", dpi=200)
+
+
+def plot_time_scatter(list_time, dir):
+    fig, ax = plt.subplots()
+    colors = ["black", "red", "blue", "green"]
+    for index, elem in enumerate(list_time):
+        elem = block_length(elem)
+        print(index)
+        plt.plot(range(len(elem)), elem, color=colors[index])
+        #plt.legend(['x = y', 'tsinfer', 'hierarchie', 'naive_50', 'naive_100'], title="Legend")
+    fig.savefig(dir + ".png", dpi=200)
+
+# def covering(mld_list, length):
+#     cover = np.array([0] * length)
+#     inf = 0
+#     for tmp, sup in mld_list:
+#         cover[inf:sup] += 1
+#         inf = tmp
+#     cover[inf:length] += 1
+#     print(len(cover[cover == 3]) / len(cover) )
+#     fig, ax = plt.subplots(figsize=(15, 10))
+#     plt.plot(range(length), cover)
+#     fig.savefig("ddd.png", dpi=200)
+#     return cover
 
 
 def main():
-    params = {"sample_size": 10, "Ne": 1, "ro": 8e-6, "mu": 8e-4, "Tau": 1, "Kappa": 5, "length": int(1e7)}
+    params = {"sample_size": 10, "Ne": 1, "ro": 8e-6, "mu": 8e-5, "Tau": 1, "Kappa": 1, "length": int(1e8)}
     # method_comparaison(params, 300)
     # times, result = method_comparaison(params, 100)
     # times.to_csv("time")
     # result.to_csv("result")
-
-    ts, edges, events, variants = msprime_simulate_variants(params)
-    print(nb_partition(variants, 10))
-    print(len(events))
-    th_events = detect_events(variants, params["sample_size"])
-    print(covering(th_events, int(1e7)))
-    #obs_events = class_brkpoints(edges, events, unroot=True)
-    #
-    # results = pd.read_csv("result")
-    # times = pd.read_csv("time")
-    # closest = pd.read_csv("closest")
-    # scatter_plot(results)
-    # box_plot_time(times)
-    # box_plot_time(closest)
+    list_time = []
+    list_time_2 = []
+    for mu in range(-6, -3):
+        params.update({"mu": 10 ** mu})
+        ts, edges, events, variants = msprime_simulate_variants(params)
+        list_time.append(np.array(depths_clades(variants, True, params["sample_size"])))
+        list_time_2 += msprime_depth(ts)
+    plot_time_scatter(list_time + [list_time_2], "time_scatter")
+    plot_time_density(list_time + [list_time_2])
+    list_time = []
+    for kappa in range(-1, 2):
+        params.update({"Kappa": 10 ** kappa})
+        ts, edges, events, variants = msprime_simulate_variants(params)
+        list_time.append(np.array(depths_clades(variants, True, params["sample_size"])))
+        list_time_2.append(msprime_depth(ts))
+    plot_time_scatter(list_time, "time_scatter_2")
 
 
 if __name__ == "__main__":
