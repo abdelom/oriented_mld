@@ -6,7 +6,7 @@ implémentation de deux algorithmes de détection de point de recombinaison dans
 """
 
 ########################################################################################################################
-##########################################algo naif#####################################################################
+########################################## algo naif####################################################################
 ########################################################################################################################
 
 def internal_incompatibility(genotype1, genotype2, oriented=True):
@@ -94,7 +94,7 @@ def detect_internal_incompatibilities(variants, oriented=True, thresold=20):
 
 
 ########################################################################################################################
-##########################################algo underachieve##############################################################
+########################################## algo underachieve############################################################
 ########################################################################################################################
 def internal_incompatibility_2(set_genotype_1, set_genotype_2):
     """
@@ -145,7 +145,7 @@ def closest_incompatibility(index: object, sub_set: object) -> object:
     for sub_set_tmp in index:
         if internal_incompatibility_2(set(sub_set), set(sub_set_tmp)):
             position.append(index[sub_set_tmp])
-    return max(position) # si -1 le site n'es pas incompatible
+    return max(position) # -1 le site est compatibles avec toute les partiotn précédeme,nt rencontrée
 
 
 def built_index(start, max_start, variants, individuals):

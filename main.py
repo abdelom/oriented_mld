@@ -57,26 +57,19 @@ def block_length(mld):
     """
     distributions des longueurs de blocs
     """
-    mld_length = []
-    # for i in range(1, len(mld)):
-    #     if mld[i] - mld[i - 1] < 0:
-    #         print(mld[i], mld[i - 1])
-    #     mld_length.append(mld[i] - mld[i - 1])
-    # mld_length = [mld[i] - mld[i - 1] for i in range(1, len(mld))]
-    # print(mld[-4:])
     length_distribution = [0] * 21
     lc = np.mean(mld)
     nb_blocks = len(mld)
     i = 0
     for length in mld:
         # print(lc, length, length / lc, (length / lc) // 0.1)
-        index = (length / lc) // 0.1
+        index = (length / lc) // 0.2
         if index < 20:
             length_distribution[int(index)] += 1
         else:
             length_distribution[-1] += 1
         i += 1
-    return np.array(length_distribution) / nb_blocks
+    return np.array(length_distribution) / nb_blocks, lc
 
 
 def closest(obs_events, th_events, variants, length, chop=True):
@@ -207,11 +200,11 @@ def box_plot_time(data):
     fig.savefig("box.png", dpi=200)
 
 
-def plot_time_density(list_time):
+def plot_time_density(list_time, mu):
     fig, ax = plt.subplots(figsize=(15, 10))
     for elem in list_time:
         if list(elem):
-            data = elem / np.mean(elem)
+            data = np.array(elem) / mu
             density = kde.gaussian_kde(data)
             x = np.linspace(0,  5, 2000)
             y = density(x)
@@ -219,14 +212,13 @@ def plot_time_density(list_time):
     fig.savefig("time5.png", dpi=200)
 
 
-def plot_time_scatter(list_time, dir):
+def plot_time_scatter(list_time, dir, mod):
     fig, ax = plt.subplots()
-    colors = ["black", "red", "blue", "green"]
+    colors = ["black", "red", "blue", "green"] * 4
     for index, elem in enumerate(list_time):
-        elem = block_length(elem)
-        print(index)
-        plt.plot(range(len(elem)), elem, color=colors[index])
-        #plt.legend(['x = y', 'tsinfer', 'hierarchie', 'naive_50', 'naive_100'], title="Legend")
+        #elem = block_length(elem)
+        print(elem)
+        plt.plot(np.arange(0, len(elem) / 5, 0.2), elem, color=colors[index])
     fig.savefig(dir + ".png", dpi=200)
 
 # def covering(mld_list, length):
@@ -237,34 +229,43 @@ def plot_time_scatter(list_time, dir):
 #         inf = tmp
 #     cover[inf:length] += 1
 #     print(len(cover[cover == 3]) / len(cover) )
-#     fig, ax = plt.subplots(figsize=(15, 10))
+#     fig, ax = plt .subplots(figsize=(15, 10))
 #     plt.plot(range(length), cover)
 #     fig.savefig("ddd.png", dpi=200)
 #     return cover
 
 
 def main():
-    params = {"sample_size": 10, "Ne": 1, "ro": 8e-6, "mu": 8e-5, "Tau": 1, "Kappa": 1, "length": int(1e8)}
+    params = {"sample_size": 6, "Ne": 1, "ro": 8e-6, "mu": 8e-5, "Tau": 1, "Kappa": 1, "length": int(1e9)}
     # method_comparaison(params, 300)
     # times, result = method_comparaison(params, 100)
     # times.to_csv("time")
     # result.to_csv("result")
-    list_time = []
+    list_time = np.zeros((4, 21))
     list_time_2 = []
-    for mu in range(-6, -3):
-        params.update({"mu": 10 ** mu})
+    # for mu in range(-6, -3):
+    #     params.update({"mu": 10 ** mu})
+    #     tmp = []
+    #     for i in range(10):
+    #         ts, edges, events, variants = msprime_simulate_variants(params)
+    #         tmp += list(depths_clades(variants, True, params["sample_size"]))
+    #     list_time.append(np.array(tmp))
+    #     list_time_2 += msprime_depth(ts)
+    #     print(np.mean(tmp))
+    for i in range(10):
+        print(i)
         ts, edges, events, variants = msprime_simulate_variants(params)
-        list_time.append(np.array(depths_clades(variants, True, params["sample_size"])))
-        list_time_2 += msprime_depth(ts)
-    plot_time_scatter(list_time + [list_time_2], "time_scatter")
-    plot_time_density(list_time + [list_time_2])
+        list_time += np.matrix([np.array(liste) for liste, _ in depths_clades_size(variants, True, params["sample_size"], True)])
+        print(list_time)
+        plot_time_scatter(list_time, "time_scatter_4", 0)
+    plot_time_density(list_time, params["mu"])
     list_time = []
-    for kappa in range(-1, 2):
-        params.update({"Kappa": 10 ** kappa})
-        ts, edges, events, variants = msprime_simulate_variants(params)
-        list_time.append(np.array(depths_clades(variants, True, params["sample_size"])))
-        list_time_2.append(msprime_depth(ts))
-    plot_time_scatter(list_time, "time_scatter_2")
+    # for kappa in range(-1, 2):
+    #     params.update({"Kappa": 10 ** kappa})
+    #     ts, edges, events, variants = msprime_simulate_variants(params)
+    #     list_time.append(np.array(depths_clades(variants, True, params["sample_size"])))
+    #     list_time_2.append(msprime_depth(ts))
+    # plot_time_scatter(list_time, "time_scatter_2")
 
 
 if __name__ == "__main__":

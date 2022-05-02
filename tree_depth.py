@@ -8,10 +8,6 @@ def msprime_depth(tree_sequence):
     :param tree_sequence: objet tree sequence de la suite tskit
     :return: liste des temps de coalescence, date des neouds du ts
     """
-    """
-    :param tree_sequence: 
-    :return: 
-    """
     return [node.time for node in tree_sequence.tables_dict["nodes"] if node.time > 0.0]
 
 
@@ -29,10 +25,10 @@ def depth_tmrca(variants, partition, sample_size, k):
     individuals = np.array(range(sample_size))
     partition = set(partition)
     for variant in variants[1:-1]:
-        partition_tmp = set(individuals[variant.genotypes])
+        partition_tmp = set(individuals[variant.genotypes == 1])
         if partition_tmp.union(partition) == partition:
-            depth += len(partition_tmp) / (length * k)
-    return depth
+            depth += len(partition_tmp)
+    return depth / (length * k)
 
 
 def partition_position(variants, sample_size):
@@ -40,7 +36,8 @@ def partition_position(variants, sample_size):
 
     :param variants: list d'objets Variants de la suite tskit, liste des sites polymorphes
     :param sample_size: le nombre d'individues total
-    :return:partition_dict:
+    :return:partition_dict: dictionnaire, les clé sont les partitions engendrés par les snps et les valeurs du dictinnaire
+    les listes des snp générant les partition
     """
     individuals = np.array(range(sample_size))
     partition_dict = {}
@@ -58,13 +55,13 @@ def partition_position(variants, sample_size):
 def internal_incompatibilities(partition_dict, partition):
     """
 
-    :param partition_dict:
-    :param partition:
-    :return:
+    :param partition_dict: dictionnaire, les clé sont les partitions engendrés par les snps et les valeurs du dictinnaire
+    :param partition: une partition corespondantz à un snp rencontré au moins une fois dans l'alignement
+    :return: la liste des positions de tout les snp incompatibles avec la partition courante
     """
     list_incompatibilities = []
     for partition_2 in partition_dict:
-        if internal_incompatibility_2(set(partition), set(partition_2)):
+        if internal_incompatibility_2(set(partition), set(partition_2)): # si les
             list_incompatibilities += partition_dict[partition_2]
     return sorted(list_incompatibilities)
 
@@ -72,9 +69,9 @@ def internal_incompatibilities(partition_dict, partition):
 def clade_in_block(list_incompatibilities, partition_pos):
     """
 
-    :param list_incompatibilities:
-    :param partition_pos:
-    :return:
+    :param list_incompatibilities:liste des sites incompatible avec la ti courante.
+    :param partition_pos: liste des position de la partition courante
+    :return:list de tuples délimitant des bloques dans lequel la partition est réalisée
     """
     list_blocks = []
     inf = list_incompatibilities[0]
@@ -93,11 +90,11 @@ def clade_in_block(list_incompatibilities, partition_pos):
 def depths_clade(partition, partition_dict, variants, crown):
     """
 
-    :param partition:
-    :param partition_dict:
-    :param variants:
-    :param crown:
-    :return:
+    :param partition: partition courante
+    :param partition_dict: dictionnaire, les clé sont les partitions engendrés par les snps et les valeurs du dictinnaire
+    :param variants:  liste d'objet Variants du module msprime
+    :param crown: boolean, si true calcul du crown sinon du stems
+    :return: list des tmrca pour chaque bloque pour sous echantillon définie par la partition dans klequel la partition correspondante est réalisé
     """
     list_depth = []
     list_incompatibilities = internal_incompatibilities(partition_dict, partition)
@@ -109,22 +106,60 @@ def depths_clade(partition, partition_dict, variants, crown):
                 delete = delete[delete < sup]
                 delete = delete - inf
                 variants_tmp = np.delete(variants[inf: sup + 1], delete)
-                list_depth.append(depth_tmrca(variants_tmp, partition, len(partition), len(partition) - 1))
+                list_depth.append(depth_tmrca(variants_tmp, partition, len(variants[0].genotypes), len(partition) - 1))
             else:
-                list_depth.append(depth_tmrca(variants[inf, sup], partition, len(partition), len(partition)))
+                list_depth.append(depth_tmrca(variants[inf: sup], partition, len(variants[0].genotypes), len(partition)))
     return list_depth
 
 
 def depths_clades(variants, crown, sample_size):
     """
     
-    :param variants:
-    :param crown:
-    :param sample_size:
-    :return:
+    :param variants:  liste d'objet Variants du module msprime
+    :param crown:  boolean, si true calcul du crown sinon du stems
+    :param sample_size: nombre de qéuqence dans l'aligenement
+    :return: ist des tmrca pour chaque bloque pour sous echantillon définie par la partition dans lequel la partition 
+    corespondante est réalisée pour toute les partition rencontrée dans l'alignement
     """
     partition_dict = partition_position(variants, sample_size)
     list_depth = np.array([])
     for partition in partition_dict:
         list_depth = np.concatenate((list_depth, depths_clade(partition, partition_dict, variants, crown)))
+    print(len(list_depth), len(list_depth[list_depth > 0]))
     return list_depth[list_depth > 0]
+
+
+def depths_clades_size(variants, crown, sample_size, size):
+    partition_dict = partition_position(variants, sample_size)
+    list_depth_size = [np.array([])] * sample_size
+    for partition in partition_dict:
+        tmp = np.array(depths_clade(partition, partition_dict, variants, crown))
+        list_depth_size[len(partition)] = np.concatenate((list_depth_size[len(partition)], tmp[tmp > 0]))
+    if size:
+        list_stat = []
+        for list_depth in list_depth_size:
+            if not list(list_depth):
+                continue
+            list_stat.append(summary_stat(list_depth))
+        return list_stat
+    return np.concatenate(list_depth_size)
+
+
+def summary_stat(list_h):
+    """
+    distributions des longueurs de blocs
+    """
+    length_distribution = [0] * 21
+    lc = np.mean(list_h)
+    nb_blocks = len(list_h)
+    i = 0
+    for length in list_h:
+        # print(lc, length, length / lc, (length / lc) // 0.1)
+        index = (length / lc) // 0.2
+        if index < 20:
+            length_distribution[int(index)] += 1
+        else:
+            length_distribution[-1] += 1
+        i += 1
+    return np.array(length_distribution) / nb_blocks, lc
+
