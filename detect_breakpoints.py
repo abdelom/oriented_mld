@@ -1,13 +1,20 @@
 import numpy as np
-
+import pandas as pd
+import collections as cl
+import matplotlib.pyplot as plt
+from classification_breakpoints import *
+from msprime_simulation import msprime_simulate_variants, test_tsinfer
+import time
 
 """
 implémentation de deux algorithmes de détection de point de recombinaison dans un alignement de séquences apparentées
 """
 
+
 ########################################################################################################################
-########################################## algo naif####################################################################
+##########################################algo naif####################################################################
 ########################################################################################################################
+
 
 def internal_incompatibility(genotype1, genotype2, oriented=True):
     """
@@ -96,23 +103,6 @@ def detect_internal_incompatibilities(variants, oriented=True, thresold=20):
 ########################################################################################################################
 ########################################## algo underachieve############################################################
 ########################################################################################################################
-def internal_incompatibility_2(set_genotype_1, set_genotype_2):
-    """
-    four gamete test enlarged to discrete recombnation events since genotypes
-    are oriented ( 0 = ancestral state, 1 = derivative state)
-    two genotypes are compatible, there is no breakpoint between them,
-    when they exlude each others or one of them include the other
-    parameters:
-        genotype1, ganotype2, array of int values taken only 0 or 1 as value
-    return:
-        boolean, True if the two sites if there is an incompatible or discrete
-        recombination event between them, then False
-    """
-    return not (
-            not set_genotype_1.intersection(set_genotype_2)
-            or set_genotype_1.union(set_genotype_2) == set_genotype_1
-            or set_genotype_1.union(set_genotype_2) == set_genotype_2
-    )
 
 
 def internal_incompatibility_2(set_genotype_1, set_genotype_2):
@@ -145,7 +135,7 @@ def closest_incompatibility(index: object, sub_set: object) -> object:
     for sub_set_tmp in index:
         if internal_incompatibility_2(set(sub_set), set(sub_set_tmp)):
             position.append(index[sub_set_tmp])
-    return max(position) # -1 le site est compatibles avec toute les partiotn précédeme,nt rencontrée
+    return max(position)  # -1 le site est compatibles avec toute les partiotn précédeme,nt rencontrée
 
 
 def built_index(start, max_start, variants, individuals):
@@ -192,4 +182,170 @@ def detect_events(variants, nb):
     while block_end < len(variants) - 1:
         block_start, start, block_end = built_index(start + 1, block_end, variants, individuals)
         list_block.append((block_start - 1, block_end))
-    return [(list_block[i + 1][0], list_block[i][1]) for i in range(len(list_block) - 1)]  # list_block
+    return [(list_block[i + 1][0] + 1, list_block[i][1]) for i in range(len(list_block) - 1)]  # list_block
+
+
+def incompatibility_in_block(partitions):
+    for index, partition in enumerate(partitions):
+        for jindex in range(index + 1, len(partitions)):
+            if internal_incompatibility_2(set(partition), set(partitions[jindex])):
+                return True
+    return False
+
+
+def checked_incompatibilities(list_blocks, variants, nb):
+    count = 0
+    individuals = np.array((range(nb)))
+    for inf, sup in list_blocks:
+        dict_partition = {}
+        for index, variant in enumerate(variants[inf + 1:sup]):
+            partition = tuple(individuals[variant.genotypes == 1])
+            if len(partition) == 1:
+                continue
+            if partition not in dict_partition:
+                dict_partition[partition] = None
+        if incompatibility_in_block(list(dict_partition.keys())):
+            count += 1
+    return count
+
+
+
+########################################################################################################################
+########################################## comparaison##################################################################
+########################################################################################################################
+
+
+def closest(obs_events, th_events, variants, length, chop=True):
+    """
+    retourne la moyennes des distances entre les événeents de recombinaisons et l'événement de recombinaison rélle le plus proche
+    """
+    positions, kind = zip(*obs_events)
+    obs_events = np.array(positions)[np.array(kind) != "silent"]
+    obs_events = [-length] + list(obs_events) + [2 * length]
+    if chop:
+        th_events = choping(th_events, variants, length)[1:-1]
+    index = 0
+    list_dist = []
+    left = obs_events[0]
+    for right in obs_events[1:]:
+        while index < len(th_events) and left <= th_events[index] <= right:
+            list_dist.append(min(th_events[index] - left, right - th_events[index]))
+            index += 1
+        left = right
+    return np.mean(list_dist)
+
+
+def th_events_ts_infer(obs_events, variants, params):
+    """
+    retourne le temps de calcul de tsinfer, le niombre de changements de topologies detecté et la distance au point de recombinaison
+    discret ou incompatible le plus proche.
+    """
+    start = time.time()
+    ts, edges, th_events, variants = test_tsinfer(variants, params["length"], simplify=True)
+    end = time.time() - start
+    dist_closest = closest(obs_events, th_events, variants, params["length"], chop=False)
+    return [cl.Counter(list(zip(*class_brkpoints(edges, th_events, unroot=False)))[1])["incompatible"], \
+            end, dist_closest]
+
+
+def th_events_ag(obs_events, variants, params):
+    """
+    retourne le temps de calcul de tsinfer, le niombre de changements de topologies detecté et la distance au point de recombinaison
+    discret ou incompatible le plus proche.
+    """
+    start = time.time()
+    th_events = detect_events(variants, params["sample_size"])
+    end = time.time() - start
+    dist_closest = closest(obs_events, th_events, variants, params["length"])
+    return len(th_events), end, dist_closest
+
+
+def th_events_ek(obs_events, variants, params):
+    """
+    retourne le temps de calcul de la méhde naïve, le niombre de changements de topologies detecté et la distance au point de recombinaison
+    discret ou incompatible le plus proche.
+    """
+    start = time.time()
+    th_events = detect_internal_incompatibilities(variants, True, params["thresold"])
+    end = time.time() - start
+    dist_closest = closest(obs_events, th_events, variants, params["length"])
+    return len(th_events), end, dist_closest
+
+
+def data_simulation(params):
+    closest_dist, result, list_time = [], [], []
+    thresolds = [0]
+    ts, edges, events, variants = msprime_simulate_variants(params)
+    events = class_brkpoints(edges, events, unroot=True)
+    events_count = cl.Counter(list(zip(*events))[1])
+    total = events_count["incompatible"] + events_count["discret"]
+    result.append(total)
+    for func in [th_events_ts_infer, th_events_ag, th_events_ek]:
+        if func == th_events_ek:
+            thresolds = (50, 10)
+        for thr in thresolds:
+            params.update({"thresold": thr})
+            nb_events, end, dist_closest = func(events, variants, params)
+            closest_dist, result, list_time = closest_dist + [dist_closest], result + [nb_events], list_time + [end]
+    return result, list_time, closest_dist
+
+
+def method_comparaison(params, nb_repetition, mu_ro, out_dir):
+    i = 0
+    list_times, list_results, list_closest = [], [], []
+    list_result = []
+    while i < nb_repetition:
+        result, list_time, nearest = data_simulation(params)
+        print(result, list_time, nearest)
+        list_times.append(list_time.copy())
+        list_result.append(result.copy())
+        list_closest.append(nearest.copy())
+        i += 1
+    pd.DataFrame(list_times, columns=["jerome", "abdel_guillaume", "elise_50", "elise_100"]).to_csv(
+        f"{out_dir}/time_{mu_ro}")
+    pd.DataFrame(
+        list_result, columns=["total", "jerome", "abdel_guillaume", "elise_50", "elise_100"]).to_csv(
+        f"{out_dir}/result_{mu_ro}")
+    pd.DataFrame(
+        list_closest, columns=["jerome", "abdel_guillaume", "elise_50", "elise_100"]).to_csv(
+        f"{out_dir}/closest_{mu_ro}")
+
+
+########################################################################################################################
+########################################## Plot#########################################################################
+########################################################################################################################
+
+
+def scatter_plot(data, mu_ro, out_dir):
+    # data = pd.melt(results, id_vars=["total"],
+    #                value_vars=["jerome", "abdel_guillaume", "elise_50", "elise_100"])
+    fig, ax = plt.subplots()
+    plt.plot(data['total'], data['total'], color='blue', ls="-")
+    ax.scatter(data['total'], data['jerome'], color="black")
+    ax.scatter(data['total'], data['abdel_guillaume'], color="red")
+    ax.scatter(data['total'], data['elise_50'], color="blue")
+    ax.scatter(data['total'], data['elise_100'], color="green")
+    plt.legend(['x = y', 'tsinfer', 'hierarchie', 'naive_50', 'naive_100'], title="Legend")
+    fig.savefig(f"{out_dir}/scatter_method_{mu_ro}.png", dpi=200)
+
+
+def box_plot_time(data, mu_ro, out_dir):
+    fig, ax = plt.subplots(figsize=(15, 10))
+    ax.boxplot([data["jerome"], data["abdel_guillaume"], data["elise_50"],
+                data["elise_100"]])  # , notch=True, patch_artist=True)
+    plt.xticks([1, 2, 3, 4], ['tsinfer', 'hierarchie', 'naive_50', 'naive_100'])
+    fig.savefig(f"{out_dir}/box_{mu_ro}.png", dpi=200)
+
+
+def main():
+    params = {"sample_size": 10, "Ne": 1, "ro": 8e-6, "mu": 8e-4, "Tau": 1, "Kappa": 1, "length": int(1e7)}
+    out_csv, out_fig = "csv_dir", "fig_dir"
+    for mu_ro in [1, 10, 100]:
+        params.update({"mu": mu_ro * 8e-6})
+        method_comparaison(params, 10, mu_ro, out_csv)
+        scatter_plot(pd.read_csv(f"{out_csv}/result_{mu_ro}"), mu_ro, out_fig)
+        box_plot_time(pd.read_csv(f"{out_csv}/closest_{mu_ro}"), mu_ro, out_fig)
+
+
+if __name__ == "__main__":
+    main()

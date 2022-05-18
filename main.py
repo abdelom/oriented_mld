@@ -4,7 +4,6 @@ import collections as cl
 import matplotlib.pyplot as plt
 from detect_breakpoints import *
 from msprime_simulation import msprime_simulate_variants, test_tsinfer
-from classification_breakpoints import class_brkpoints
 from tree_depth import *
 from scipy.stats import kde
 
@@ -72,134 +71,6 @@ def block_length(mld):
     return np.array(length_distribution) / nb_blocks, lc
 
 
-def closest(obs_events, th_events, variants, length, chop=True):
-    """
-    retourne la moyennes des distances entre les événeents de recombinaisons et l'événement de recombinaison rélle le plus proche
-    """
-    positions, kind = zip(*obs_events)
-    obs_events = np.array(positions)[np.array(kind) != "silent"]
-    obs_events = [-length] + list(obs_events) + [2 * length]
-    if chop:
-        th_events = choping(th_events, variants, length)[1:-1]
-    index = 0
-    list_dist = []
-    left = obs_events[0]
-    for right in obs_events[1:]:
-        while index < len(th_events) and left <= th_events[index] <= right:
-            list_dist.append(min(th_events[index] - left, right - th_events[index]))
-            index += 1
-        left = right
-    return np.mean(list_dist)
-
-
-def th_events_ts_infer(obs_events, variants, params):
-    """
-    retourne le temps de calcul de tsinfer, le niombre de changements de topologies detecté et la distance au point de recombinaison
-    discret ou incompatible le plus proche.
-    """
-    start = time.time()
-    ts, edges, th_events, variants = test_tsinfer(variants, params["length"], simplify=True)
-    end = time.time() - start
-    dist_closest = closest(obs_events, th_events, variants, params["length"], chop=False)
-    return [cl.Counter(list(zip(*class_brkpoints(edges, th_events, unroot=False)))[1])["incompatible"], \
-            end, dist_closest]
-
-
-def th_events_ag(obs_events, variants, params):
-    """
-    retourne le temps de calcul de tsinfer, le niombre de changements de topologies detecté et la distance au point de recombinaison
-    discret ou incompatible le plus proche.
-    """
-    start = time.time()
-    th_events = detect_events(variants, params["sample_size"])
-    end = time.time() - start
-    dist_closest = closest(obs_events, th_events, variants, params["length"])
-    return len(th_events), end, dist_closest
-
-
-def th_events_ek(obs_events, variants, params):
-    """
-    retourne le temps de calcul de la méhde naïve, le niombre de changements de topologies detecté et la distance au point de recombinaison
-    discret ou incompatible le plus proche.
-    """
-    start = time.time()
-    th_events = detect_internal_incompatibilities(variants, True, params["thresold"])
-    end = time.time() - start
-    dist_closest = closest(obs_events, th_events, variants, params["length"])
-    return len(th_events), end, dist_closest
-
-
-def data_simulation(params):
-    closest_dist, result, list_time = [], [], []
-    thresolds = [0]
-    ts, edges, events, variants = msprime_simulate_variants(params)
-    events = class_brkpoints(edges, events, unroot=True)
-    events_count = cl.Counter(list(zip(*events))[1])
-    total = events_count["incompatible"] + events_count["discret"]
-    result.append(total)
-    for func in [th_events_ts_infer, th_events_ag, th_events_ek]:
-        if func == th_events_ek:
-            thresolds = (50, 100)
-        for thr in thresolds:
-            params.update({"thresold": thr})
-            nb_events, end, dist_closest = func(events, variants, params)
-            closest_dist, result, list_time = closest_dist + [dist_closest], result + [nb_events], list_time + [end]
-    return result, list_time, closest_dist
-
-
-def method_comparaison(params, nb_repetition):
-    i = 0
-    list_times, list_results, list_closest = [], [], []
-    list_result = []
-    while i < nb_repetition:
-        result, list_time, closest = data_simulation(params)
-        print(result, list_time, closest)
-        list_times.append(list_time.copy())
-        list_result.append(result.copy())
-        list_closest.append(closest.copy())
-        i += 1
-    pd.DataFrame(list_times, columns=["jerome", "abdel_guillaume", "elise_50", "elise_100"]).to_csv("time")
-    pd.DataFrame(
-        list_result, columns=["total", "jerome", "abdel_guillaume", "elise_50", "elise_100"]).to_csv("result")
-    pd.DataFrame(
-        list_closest, columns=["jerome", "abdel_guillaume", "elise_50", "elise_100"]).to_csv("closest")
-
-
-# def nb_partition(variants, individuals):
-#     dict_partitions = {}
-#     individuals = np.array(range(individuals))
-#     print(list(individuals))
-#     for variant in variants:
-#         partition = tuple(individuals[variant.genotypes == 1])
-#         if partition in dict_partitions:
-#             dict_partitions[partition] += 1
-#         else:
-#             dict_partitions[partition] = 0
-#     return dict_partitions
-
-
-def scatter_plot(data):
-    # data = pd.melt(results, id_vars=["total"],
-    #                value_vars=["jerome", "abdel_guillaume", "elise_50", "elise_100"])
-    fig, ax = plt.subplots()
-    #colors = {'abdel_guillaume': 'red', 'elise_50': 'green', 'elise_100': 'blue', 'jerome': 'black'}
-    plt.plot(data['total'], data['total'], color='blue', ls="-")
-    ax.scatter(data['total'], data['jerome'], color="black")
-    ax.scatter(data['total'], data['abdel_guillaume'], color="red")
-    ax.scatter(data['total'], data['elise_50'], color="blue")
-    ax.scatter(data['total'], data['elise_100'], color="green")
-    plt.legend(['x = y', 'tsinfer', 'hierarchie', 'naive_50', 'naive_100'], title="Legend")
-    fig.savefig("scatter.png", dpi=200)
-
-
-def box_plot_time(data):
-    fig, ax = plt.subplots(figsize=(15, 10))
-    ax.boxplot([data["jerome"], data["abdel_guillaume"], data["elise_50"],
-                data["elise_100"]])  # , notch=True, patch_artist=True)
-    plt.xticks([1, 2, 3, 4], ['tsinfer', 'hierarchie', 'naive_50', 'naive_100'])
-    fig.savefig("box.png", dpi=200)
-
-
 def plot_time_density(list_time, mu):
     fig, ax = plt.subplots(figsize=(15, 10))
     for elem in list_time:
@@ -212,53 +83,47 @@ def plot_time_density(list_time, mu):
     fig.savefig("time5.png", dpi=200)
 
 
-def plot_time_scatter(list_time, dir, mod):
+def plot_time_scatter(list_time, dir):
     fig, ax = plt.subplots()
     colors = ["black", "red", "blue", "green"] * 4
     for index, elem in enumerate(list_time):
         #elem = block_length(elem)
+        elem, lc = summary_stat(elem)
         print(elem)
         plt.plot(np.arange(0, len(elem) / 5, 0.2), elem, color=colors[index])
     fig.savefig(dir + ".png", dpi=200)
 
-# def covering(mld_list, length):
-#     cover = np.array([0] * length)
-#     inf = 0
-#     for tmp, sup in mld_list:
-#         cover[inf:sup] += 1
-#         inf = tmp
-#     cover[inf:length] += 1
-#     print(len(cover[cover == 3]) / len(cover) )
-#     fig, ax = plt .subplots(figsize=(15, 10))
-#     plt.plot(range(length), cover)
-#     fig.savefig("ddd.png", dpi=200)
-#     return cover
-
 
 def main():
-    params = {"sample_size": 6, "Ne": 1, "ro": 8e-6, "mu": 8e-5, "Tau": 1, "Kappa": 1, "length": int(1e9)}
-    # method_comparaison(params, 300)
+    params = {"sample_size": 6, "Ne": 1, "ro": 8e-6, "mu": 8e-4, "Tau": 1, "Kappa": 1, "length": int(1e8)}
+    ts, edges, events, variants = msprime_simulate_variants(params)
+    a = partition_dict_msprime(ts)
+    b = partition_dict_estimate(variants, True, 6)
+    start = time.time()
+    msprime_estimate_scatters(estimate_v_msprime(b, a, 6), "a")
+    print(time.time() - start)
+
     # times, result = method_comparaison(params, 100)
     # times.to_csv("time")
     # result.to_csv("result")
-    list_time = np.zeros((4, 21))
+    list_time = []
     list_time_2 = []
     # for mu in range(-6, -3):
     #     params.update({"mu": 10 ** mu})
     #     tmp = []
     #     for i in range(10):
     #         ts, edges, events, variants = msprime_simulate_variants(params)
-    #         tmp += list(depths_clades(variants, True, params["sample_size"]))
+    #         tmp += list(depths_clades_size(variants, True, params["sample_size"], False))
     #     list_time.append(np.array(tmp))
     #     list_time_2 += msprime_depth(ts)
-    #     print(np.mean(tmp))
-    for i in range(10):
-        print(i)
-        ts, edges, events, variants = msprime_simulate_variants(params)
-        list_time += np.matrix([np.array(liste) for liste, _ in depths_clades_size(variants, True, params["sample_size"], True)])
-        print(list_time)
-        plot_time_scatter(list_time, "time_scatter_4", 0)
-    plot_time_density(list_time, params["mu"])
+    # plot_time_scatter(list_time, "time_scatter_2")
+    # for i in range(10):
+    #     print(i)
+    #     ts, edges, events, variants = msprime_simulate_variants(params)
+    #     list_time += np.matrix([np.array(liste) for liste, _ in depths_clades_size(variants, True, params["sample_size"], True)])
+    #     print(list_time)
+    #     plot_time_scatter(list_time, "time_scatter_6", 0)
+    # plot_time_density(list_time, params["mu"])
     list_time = []
     # for kappa in range(-1, 2):
     #     params.update({"Kappa": 10 ** kappa})
