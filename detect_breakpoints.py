@@ -101,7 +101,7 @@ def detect_internal_incompatibilities(variants, oriented=True, thresold=20):
 
 
 ########################################################################################################################
-########################################## algo underachieve############################################################
+##########################################algo underachieve############################################################
 ########################################################################################################################
 
 
@@ -168,9 +168,25 @@ def built_index(start, max_start, variants, individuals):
     return block_start, - 1, len(variants) - 1
 
 
+# def detect_events(variants, nb):
+#     """
+#
+#     :param variants: liste d'objet Variants du module msprime
+#     :param nb: nombre de séquence dans l'alignement
+#     :return: liste de tuples délimitants des bloques de dans l'alignement de séquence sans incompatibilitées
+#     ces blocs peuvent être chevauchant
+#     """
+#     individuals = np.array((range(nb)))
+#     block_start, start, block_end = built_index(0, 0, variants, individuals)
+#     list_block = [(block_start, block_end)]
+#     while block_end < len(variants) - 1:
+#         block_start, start, block_end = built_index(start + 1, block_end, variants, individuals)
+#         list_block.append((block_start - 1, block_end))
+#     return [(list_block[i + 1][0], list_block[i][1]) for i in range(len(list_block) - 1)]  # list_block
+
+
 def detect_events(variants, nb):
     """
-
     :param variants: liste d'objet Variants du module msprime
     :param nb: nombre de séquence dans l'alignement
     :return: liste de tuples délimitants des bloques de dans l'alignement de séquence sans incompatibilitées
@@ -183,6 +199,11 @@ def detect_events(variants, nb):
         block_start, start, block_end = built_index(start + 1, block_end, variants, individuals)
         list_block.append((block_start - 1, block_end))
     return [(list_block[i + 1][0] + 1, list_block[i][1]) for i in range(len(list_block) - 1)]  # list_block
+
+
+#######################################################################################################################
+############################################checked####################################################################
+#######################################################################################################################
 
 
 def incompatibility_in_block(partitions):
@@ -208,6 +229,40 @@ def checked_incompatibilities(list_blocks, variants, nb):
             count += 1
     return count
 
+
+def hierarchie(variants, inf, sup, individuals):
+    hierarchie = {}
+    for variant in variants[inf: sup]:
+        index = tuple(individuals[variant.genotypes == 1])
+        if index not in hierarchie:
+            hierarchie[index] = None
+    return hierarchie
+
+
+def compar_hierarchie(hierarchie_1, hierarchie_2):
+    for index in hierarchie_1:
+        if index in hierarchie_2:
+            continue
+        for index_2 in hierarchie_2:
+            if internal_incompatibility_2(set(index), set(index_2)):
+                return True
+    return False
+
+
+def check_blocks(blocks, variants, sample_size):
+    individuals = np.array(range(sample_size))
+    inf, sup = blocks[0]
+    count = 0
+    hierarchie_1 = hierarchie(variants, inf, sup, individuals)
+    for inf, sup in blocks[1:]:
+        hierarchie_2 = hierarchie(variants, inf, sup, individuals)
+        if not compar_hierarchie(hierarchie_1, hierarchie_2):
+            count += 1
+            # print("a")
+            # print(hierarchie_1.keys())
+            # print(hierarchie_2.keys())
+        hierarchie_1 = hierarchie_2
+    print(count)
 
 
 ########################################################################################################################
@@ -256,7 +311,9 @@ def th_events_ag(obs_events, variants, params):
     start = time.time()
     th_events = detect_events(variants, params["sample_size"])
     end = time.time() - start
-    dist_closest = closest(obs_events, th_events, variants, params["length"])
+    dist_closest = closest(obs_events, th_events.copy(), variants, params["length"])
+    th_events.append((len(variants), len(variants)))
+    th_events = [(-1, -1)] + th_events
     return len(th_events), end, dist_closest
 
 
@@ -268,7 +325,9 @@ def th_events_ek(obs_events, variants, params):
     start = time.time()
     th_events = detect_internal_incompatibilities(variants, True, params["thresold"])
     end = time.time() - start
-    dist_closest = closest(obs_events, th_events, variants, params["length"])
+    dist_closest = closest(obs_events, th_events.copy(), variants, params["length"])
+    th_events.append((len(variants), len(variants)))
+    th_events = [(-1, -1)] + th_events
     return len(th_events), end, dist_closest
 
 
@@ -282,7 +341,7 @@ def data_simulation(params):
     result.append(total)
     for func in [th_events_ts_infer, th_events_ag, th_events_ek]:
         if func == th_events_ek:
-            thresolds = (50, 10)
+            thresolds = (50, 100)
         for thr in thresolds:
             params.update({"thresold": thr})
             nb_events, end, dist_closest = func(events, variants, params)
@@ -315,6 +374,38 @@ def method_comparaison(params, nb_repetition, mu_ro, out_dir):
 ########################################## Plot#########################################################################
 ########################################################################################################################
 
+def plot_time_error():
+    leg = ["tsinfer", "hierarchie", "naive_50", "naive_100"]
+    data_mean = pd.DataFrame(columns=leg)
+    data_std = pd.DataFrame(columns=leg)
+    fig, ax = plt.subplots(figsize=(7.5, 7))
+    l_mu_ro = [1, 10, 100]
+    for mu_ro in [1, 10, 100]:
+        dataf = pd.read_csv(f"csv_dir/closest_{mu_ro}", index_col=0)
+        dataf.columns = leg
+        data_mean = pd.concat((data_mean, pd.DataFrame(dataf.mean(axis=0)).transpose()))
+        data_std = pd.concat((data_std, pd.DataFrame(dataf.std(axis=0)).transpose()))
+    for elem in leg:
+        plt.errorbar(l_mu_ro, data_mean[elem], data_std[elem], linestyle='--', marker='o')
+        plt.legend(leg, title="Legend")
+        plt.ylabel("ditance à l'événement de recombianison \n le plus proche(en base)")
+        plt.xlabel("taux de mutation / taux de recombinaison \n (par base et par unité de temps)")
+    fig.savefig(f"fig_dir/time_error_{mu_ro}.png", dpi=200)
+
+
+def plot_closest_error():
+    leg = ["tsinfer", "hierarchie", "naive_50", "naive_100"]
+    for mu_ro in [1, 10, 100]:
+        fig, ax = plt.subplots()
+        dataf = pd.read_csv(f"csv_dir/closest_{mu_ro}", index_col=0)
+        dataf.columns = leg
+        plt.bar(range(1, 5), dataf.mean(axis=0))
+        plt.errorbar(range(1, 5), dataf.mean(axis=0), yerr=dataf.std(axis=0), fmt="o", color="r")
+        plt.ylabel("ditance à l'événement de recombianison \n le plus proche(en base)")
+        plt.xlabel("algorithme utilisé")
+        plt.xticks(range(1, 5), leg)
+        fig.savefig(f"fig_dir/closest_error_{mu_ro}.png", dpi=200)
+
 
 def scatter_plot(data, mu_ro, out_dir):
     # data = pd.melt(results, id_vars=["total"],
@@ -340,11 +431,13 @@ def box_plot_time(data, mu_ro, out_dir):
 def main():
     params = {"sample_size": 10, "Ne": 1, "ro": 8e-6, "mu": 8e-4, "Tau": 1, "Kappa": 1, "length": int(1e7)}
     out_csv, out_fig = "csv_dir", "fig_dir"
-    for mu_ro in [1, 10, 100]:
-        params.update({"mu": mu_ro * 8e-6})
-        method_comparaison(params, 10, mu_ro, out_csv)
-        scatter_plot(pd.read_csv(f"{out_csv}/result_{mu_ro}"), mu_ro, out_fig)
-        box_plot_time(pd.read_csv(f"{out_csv}/closest_{mu_ro}"), mu_ro, out_fig)
+    plot_time_error()
+    plot_closest_error()
+    # for mu_ro in [1, 10, 100]:
+    #     params.update({"mu": mu_ro * 8e-6})
+    #     method_comparaison(params, 300, mu_ro, out_csv)
+    #     scatter_plot(pd.read_csv(f"{out_csv}/result_{mu_ro}"), mu_ro, out_fig)
+    #     box_plot_time(pd.read_csv(f"{out_csv}/closest_{mu_ro}"), mu_ro, out_fig)
 
 
 if __name__ == "__main__":
